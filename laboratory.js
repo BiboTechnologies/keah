@@ -553,167 +553,296 @@ onValue(patientsRef, (snapshot) => {
 });
 
 
-// Function to render the patients for the current page
-function renderPatients() {
+
+// ====================== PLACEHOLDERS ======================
+function renderPlaceholders(rows = 5) {
   patientsContainer.innerHTML = '';
-
-  // Apply search filter if searchResults exist, else use patientsData
-  const dataToDisplay = searchResults.length > 0 ? searchResults : patientsData;
-
-  // Calculate the start and end indices for the current page
-  const startIndex = (currentPage - 1) * patientsPerPage;
-  const endIndex = startIndex + patientsPerPage;
-
-  // Create a subset of patients for the current page
-  const patientsForPage = dataToDisplay.slice(startIndex, endIndex);
-
-  // Create the table element
   const table = document.createElement('table');
   table.classList.add('patient-table');
 
-  // Define the table header row
-  const tableHeaderRow = document.createElement('tr');
-  tableHeaderRow.classList.add('table-header');
-
-  // Define the table header columns
   const headers = ['Name', 'Place of Residence', 'Payment Terms', 'Sex', 'Patient ID', 'Contact', 'Date of Birth', 'Age', 'Actions'];
 
-  // Create the table header cells
+  // Header
+  const headerRow = document.createElement('tr');
   headers.forEach(headerText => {
-    const tableHeaderCell = document.createElement('th');
-    tableHeaderCell.textContent = headerText;
-    tableHeaderRow.appendChild(tableHeaderCell);
+    const th = document.createElement('th');
+    th.textContent = headerText;
+    headerRow.appendChild(th);
   });
+  table.appendChild(headerRow);
 
-  // Function to create a table cell with hidden first digits
-  function createHiddenDigitsTableCell(text, visibleDigitsCount) {
-    const cell = document.createElement('td');
-    const hiddenDigits = '*'.repeat(text.length - visibleDigitsCount);
-    const visibleDigits = text.slice(-visibleDigitsCount);
-    cell.textContent = hiddenDigits + visibleDigits;
-    return cell;
+  // Skeleton rows
+  for (let i = 0; i < rows; i++) {
+    const row = document.createElement('tr');
+    row.classList.add('placeholder-row');
+
+    headers.forEach(() => {
+      const cell = document.createElement('td');
+      const skeletonDiv = document.createElement('div');
+      skeletonDiv.classList.add('skeleton');
+      cell.appendChild(skeletonDiv);
+      row.appendChild(cell);
+    });
+
+    table.appendChild(row);
   }
 
-  // Append the header row to the table
-  table.appendChild(tableHeaderRow);
+  patientsContainer.appendChild(table);
+}
 
-patientsForPage.forEach(patient => {
-  // Create a table row for each patient
-  const tableRow = document.createElement('tr');
-  tableRow.classList.add('table-row');
+// ====================== CONFIG ======================
 
-  // Create the table cells for patient information
-  const nameCell = createTableCell(patient.name);
-  const residenceCell = createTableCell(patient.residence);
-  const paymentCell = createTableCell(patient.payment);
-  const sexCell = createTableCell(patient.sex);
-  const patientIdCell = createTableCell('KMC - ' + patient.patientId);
-  const parentsCell = createHiddenDigitsTableCell(patient.parents, 3);
-  const dobCell = createTableCell(patient.dob);
-  
-  // Calculate the age based on the date of birth
-  const dob = new Date(patient.dob);
+let lastFetchedKey = null;
+const batchSize = 40;
+let loading = false;
+
+const paginationDiv = document.getElementById('pagination');
+
+// ====================== FETCH IN BATCHES ======================
+async function fetchPatientsBatch() {
+  if (loading) return;
+  loading = true;
+
+  // Show skeleton immediately
+  renderPlaceholders(patientsPerPage);
+
+  let patientsQuery;
+  if (lastFetchedKey) {
+    patientsQuery = query(
+      patientsRef,
+      orderByKey(),
+      startAfter(lastFetchedKey),
+      limitToFirst(batchSize)
+    );
+  } else {
+    patientsQuery = query(
+      patientsRef,
+      orderByKey(),
+      limitToFirst(batchSize)
+    );
+  }
+
+  try {
+    const snapshot = await get(patientsQuery);
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const newPatients = Object.keys(data).map(key => ({
+        id: key,
+        ...data[key],
+      }));
+
+      lastFetchedKey = newPatients[newPatients.length - 1].id;
+      patientsData = [...patientsData, ...newPatients];
+      renderPatients(); // render first page
+    } else {
+      renderPatients();
+    }
+  } catch (error) {
+    console.error('Error fetching patients:', error);
+  } finally {
+    loading = false;
+  }
+}
+// Function to check if it's today's date (helper function)
+function isToday(date) {
   const today = new Date();
-  const age = today.getFullYear() - dob.getFullYear();
-  const ageCell = createTableCell(age.toString());
+  return date.getDate() === today.getDate() && date.getMonth() === today.getMonth();
+}
+// ====================== RENDER FUNCTION ======================
+function renderPatients() {
+  const dataToDisplay = searchResults.length > 0 ? searchResults : patientsData;
+  if (dataToDisplay.length === 0) {
+    patientsContainer.innerHTML = '<p>No patients found.</p>';
+    paginationDiv.innerHTML = '';
+    return;
+  }
 
-  // Create the actions cell with the view button
-  const actionsCell = document.createElement('td');
-  const viewButton = document.createElement('button');
-  viewButton.textContent = 'View';
-  viewButton.classList.add('view-button');
-  viewButton.addEventListener('click', function() {
-    currentPatientName = patient.name; // Set the current patient name
-    openPatientHistoryPopup(patient);
+  const startIndex = (currentPage - 1) * patientsPerPage;
+  const endIndex = startIndex + patientsPerPage;
+  const patientsForPage = dataToDisplay.slice(startIndex, endIndex);
+
+  const table = document.createElement('table');
+  table.classList.add('patient-table');
+
+  const headers = ['Name', 'Place of Residence', 'Payment Terms', 'Sex', 'Patient ID', 'Contact', 'Date of Birth', 'Age', 'Actions'];
+  const headerRow = document.createElement('tr');
+  headers.forEach(headerText => {
+    const th = document.createElement('th');
+    th.textContent = headerText;
+    headerRow.appendChild(th);
   });
-  actionsCell.appendChild(viewButton);
+  table.appendChild(headerRow);
 
-  // Append the cells to the table row
-  tableRow.appendChild(nameCell);
-  tableRow.appendChild(residenceCell);
-  tableRow.appendChild(paymentCell);
-  tableRow.appendChild(sexCell);
-  tableRow.appendChild(patientIdCell);
-  tableRow.appendChild(parentsCell);
-  tableRow.appendChild(dobCell);
-  tableRow.appendChild(ageCell);
-  tableRow.appendChild(actionsCell);
+  // Collect patients with birthdays today
+  const todayPatients = [];
 
-  // Append the row to the table
-  table.appendChild(tableRow);
-});
+  patientsForPage.forEach(patient => {
+    const row = document.createElement('tr');
 
-// Append the table to the patients container
-patientsContainer.appendChild(table);
+    const nameCell = createTableCell(patient.name);
+    const residenceCell = createTableCell(patient.residence);
+    const paymentCell = createTableCell(patient.payment);
+    const sexCell = createTableCell(patient.sex);
+    const idCell = createTableCell('PI - ' + (patient.patientId || patient.id));
+    const contactCell = createHiddenDigitsTableCell(patient.parents || '', 3);
+    const dobCell = createTableCell(patient.dob || '');
+    const ageCell = createTableCell(patient.dob ? new Date().getFullYear() - new Date(patient.dob).getFullYear() : '');
 
-  // Create pagination navigation
-  const totalPages = Math.ceil(dataToDisplay.length / patientsPerPage);
+    const actionCell = document.createElement('td');
+    const viewButton = document.createElement('button');
+    viewButton.textContent = 'View';
+    viewButton.classList.add('view-button');
+    viewButton.addEventListener('click', () => openPatientHistoryPopup(patient));
+    actionCell.appendChild(viewButton);
 
-  // Get a reference to the pagination div by its id
-  const paginationDiv = document.getElementById('pagination');
-  paginationDiv.innerHTML = ''; // Clear existing content in the div
+    [nameCell, residenceCell, paymentCell, sexCell, idCell, contactCell, dobCell, ageCell, actionCell].forEach(c => row.appendChild(c));
 
-  // Create previous and next buttons
+    // Birthday highlight
+    if (patient.dob && isToday(new Date(patient.dob))) {
+      dobCell.style.backgroundColor = 'yellow';
+      dobCell.innerHTML += ' 🎂🎁';
+      todayPatients.push(patient);
+    }
+
+    table.appendChild(row);
+  });
+
+  patientsContainer.innerHTML = '';
+  patientsContainer.appendChild(table);
+
+  renderPagination(dataToDisplay.length);
+
+  // Trigger birthday messaging popup if any
+  if (todayPatients.length > 0) openBirthdayMessagePopup(todayPatients);
+}
+
+// ====================== PAGINATION ======================
+function renderPagination(totalItems) {
+  const totalPages = Math.ceil(totalItems / patientsPerPage);
+  paginationDiv.innerHTML = '';
+
   const prevButton = document.createElement('button');
   prevButton.textContent = 'Previous';
+  prevButton.disabled = currentPage === 1;
   prevButton.addEventListener('click', () => {
     if (currentPage > 1) {
       currentPage--;
-      renderPatients(); // Re-render with the previous page
+      renderPatients();
     }
   });
 
   const nextButton = document.createElement('button');
   nextButton.textContent = 'Next';
+  nextButton.disabled = currentPage >= totalPages;
   nextButton.addEventListener('click', () => {
     if (currentPage < totalPages) {
       currentPage++;
-      renderPatients(); // Re-render with the next page
+      if ((currentPage * patientsPerPage) > patientsData.length) {
+        fetchPatientsBatch();
+      } else {
+        renderPatients();
+      }
     }
   });
 
-  // Display current page and total pages
   const pageInfo = document.createElement('span');
   pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
 
-  // Append the buttons and page info to the pagination div
-  paginationDiv.appendChild(prevButton);
-  paginationDiv.appendChild(pageInfo);
-  paginationDiv.appendChild(nextButton);
+  paginationDiv.append(prevButton, pageInfo, nextButton);
 }
 
-// Add event listener to search input for live search
+// ====================== SEARCH ======================
 searchInput.addEventListener('input', () => {
-  const searchTerm = searchInput.value.trim().toLowerCase(); // Get the search term
-
-  // Clear the search results
+  const searchTerm = searchInput.value.trim().toLowerCase();
   searchResults = [];
 
   if (searchTerm !== '') {
-    // Filter patients based on the search term
     searchResults = patientsData.filter(patient => {
       return (
-        patient.name.toLowerCase().includes(searchTerm) ||
-        patient.patientId.includes(searchTerm)
+        (patient.name && patient.name.toLowerCase().includes(searchTerm)) ||
+        (patient.patientId && patient.patientId.includes(searchTerm))
       );
     });
   }
 
-  // Reset the pagination to the first page
   currentPage = 1;
-
-  // Update the pagination and render the patients
   renderPatients();
 });
 
-// Call renderPatients with the initial parameters to show the first page
-renderPatients();
-
+// ====================== HELPERS ======================
 function createTableCell(text) {
   const cell = document.createElement('td');
-  cell.textContent = text;
+  cell.textContent = text || '';
   return cell;
 }
+
+function createHiddenDigitsTableCell(text, visibleDigitsCount) {
+  const cell = document.createElement('td');
+  if (!text) {
+    cell.textContent = '';
+    return cell;
+  }
+  if (text.length <= visibleDigitsCount) {
+    cell.textContent = text;
+  } else {
+    const hiddenDigits = '*'.repeat(text.length - visibleDigitsCount);
+    const visibleDigits = text.slice(-visibleDigitsCount);
+    cell.textContent = hiddenDigits + visibleDigits;
+  }
+  return cell;
+}
+
+
+// ====================== BIRTHDAY POPUP & MESSAGING ======================
+function openBirthdayMessagePopup(patients) {
+  const popup = document.getElementById('birthdayMessagePopup');
+  const table = document.getElementById('patientsTable');
+  const overlay = document.getElementById('overlay');
+  const closeBtn = document.getElementById('closeMessagePopup');
+
+  if (!popup || !table || !overlay || !closeBtn) return;
+
+  table.innerHTML = '';
+  patients.forEach(p => {
+    const row = table.insertRow();
+    const nameCell = row.insertCell(0);
+    const phoneCell = row.insertCell(1);
+    nameCell.textContent = p.name;
+    phoneCell.textContent = p.parents;
+  });
+
+  popup.classList.add('active');
+  overlay.style.display = 'block';
+
+  const sendBtn = document.getElementById('sendBirthdayMessage');
+  if (sendBtn) {
+    sendBtn.onclick = () => {
+      const messageInput = document.getElementById('birthdayMessageInput').value;
+      const hospitalName = 'Sanyu Hospital';
+      const hospitalInfo = 'Katooke Wakiso District, Uganda';
+
+      patients.forEach((p, i) => {
+        setTimeout(() => {
+          const message = `🎉 Happy Birthday, ${p.name}! 🎂🎁\n\n${messageInput}\nFrom ${hospitalName}\nAddress: ${hospitalInfo}`;
+          window.open(`https://api.whatsapp.com/send?phone=${p.parents}&text=${encodeURIComponent(message)}`);
+        }, i * 3000);
+      });
+
+      overlay.style.display = 'none';
+      popup.style.display = 'none';
+    };
+  }
+
+  closeBtn.onclick = () => {
+    overlay.style.display = 'none';
+    popup.style.display = 'none';
+  };
+}
+
+// ====================== INITIAL LOAD ======================
+document.addEventListener('DOMContentLoaded', () => {
+  fetchPatientsBatch();
+});
 
 
 

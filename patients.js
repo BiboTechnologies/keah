@@ -1075,315 +1075,294 @@ function hideLoadingSpinner() {
   }
 }
 
-// Function to render the patients for the current page
-async function renderPatients() {
-  showLoadingSpinner(); // Show spinner before loading new rows
 
+// ====================== PLACEHOLDERS ======================
+function renderPlaceholders(rows = 5) {
   patientsContainer.innerHTML = '';
-
-  // Apply search filter if searchResults exist, else use patientsData
-  const dataToDisplay = searchResults.length > 0 ? searchResults : patientsData;
-
-  // Calculate the start and end indices for the current page
-  const startIndex = (currentPage - 1) * patientsPerPage;
-  const endIndex = startIndex + patientsPerPage;
-
-  
-  // Create a subset of patients for the current page
-  const patientsForPage = dataToDisplay.slice(startIndex, endIndex);
-
-  // Create the table element
   const table = document.createElement('table');
   table.classList.add('patient-table');
 
-  // Define the table header row
-  const tableHeaderRow = document.createElement('tr');
-  tableHeaderRow.classList.add('table-header');
+  const headers = ['Name', 'Place of Residence', 'Payment Terms', 'Sex', 'Patient ID', 'Contact', 'Date of Birth', 'Age', 'Actions'];
 
- // Define the table header columns
-const headers = ['Select', 'Name', 'Residence', 'Payment Terms', 'Sex', 'Patient ID', 'Contact', 'Date of Birth', 'Age', 'Actions'];
-
-  // Create the table header cells
+  // Header
+  const headerRow = document.createElement('tr');
   headers.forEach(headerText => {
-    const tableHeaderCell = document.createElement('th');
-    tableHeaderCell.textContent = headerText;
-    tableHeaderRow.appendChild(tableHeaderCell);
+    const th = document.createElement('th');
+    th.textContent = headerText;
+    headerRow.appendChild(th);
   });
+  table.appendChild(headerRow);
 
-  // Function to create a table cell with hidden first digits
-  function createHiddenDigitsTableCell(text, visibleDigitsCount) {
-    const cell = document.createElement('td');
-    const hiddenDigits = '*'.repeat(text.length - visibleDigitsCount);
-    const visibleDigits = text.slice(-visibleDigitsCount);
-    cell.textContent = hiddenDigits + visibleDigits;
-    return cell;
+  // Skeleton rows
+  for (let i = 0; i < rows; i++) {
+    const row = document.createElement('tr');
+    row.classList.add('placeholder-row');
+
+    headers.forEach(() => {
+      const cell = document.createElement('td');
+      const skeletonDiv = document.createElement('div');
+      skeletonDiv.classList.add('skeleton');
+      cell.appendChild(skeletonDiv);
+      row.appendChild(cell);
+    });
+
+    table.appendChild(row);
   }
 
-  // Function to check if the given date is today
-  function isToday(date) {
-    const today = new Date();
-    return date.getDate() === today.getDate() && date.getMonth() === today.getMonth();
-  }
-
-  // Check if any patients have birthdays today
-  let isBirthdayToday = false;
-
-  // Append the header row to the table
-  table.appendChild(tableHeaderRow);
-// Show loading effect while loading patient data
-patientsForPage.forEach(patient => {
-  // Create a table row for each patient
-  const tableRow = document.createElement('tr');
-  
-  // Add loading class to the row
-  tableRow.classList.add('loading-row');
-
-  // Create the "Select" checkbox cell
-  const selectCell = document.createElement('td');
-  const selectCheckbox = document.createElement('input');
-  selectCheckbox.type = 'checkbox';
-  selectCell.appendChild(selectCheckbox);
-  tableRow.appendChild(selectCell);
-
-  // Add a click event listener to the row
-  tableRow.addEventListener('click', () => {
-    // Toggle the checkbox when the row is clicked
-    selectCheckbox.checked = !selectCheckbox.checked;
-
-    // Add or remove a CSS class to highlight the selected row
-    if (selectCheckbox.checked) {
-      tableRow.classList.add('selected-row');
-    } else {
-      tableRow.classList.remove('selected-row');
-    }
-  });
-
-  // Create the table cells for patient information
-  const nameCell = createTableCell(patient.name);
-  const residenceCell = createTableCell(patient.residence);
-  const paymentCell = createTableCell(patient.payment);
-  const sexCell = createTableCell(patient.sex);
-  const patientIdCell = createTableCell('KMC - ' + patient.patientId);
-  const parentsCell = createHiddenDigitsTableCell(patient.parents, 3);
-  const dobCell = createTableCell(patient.dob);
-
-  // Calculate the age based on the date of birth
-  const dob = new Date(patient.dob);
-  const today = new Date();
-  const age = today.getFullYear() - dob.getFullYear();
-  const ageCell = createTableCell(age.toString());
-
-  // Create the actions cell with the view button
-  const actionsCell = document.createElement('td');
-  const viewButton = document.createElement('button');
-  viewButton.textContent = 'View';
-  viewButton.classList.add('view-button');
-  viewButton.addEventListener('click', function() {
-    currentPatientName = patient.name; // Set the current patient name
-    openPatientHistoryPopup(patient);
-  });
-  actionsCell.appendChild(viewButton);
-
-  // Check if it's the patient's birthday today
-  if (isToday(dob)) {
-    dobCell.style.backgroundColor = 'yellow'; // Make the DOB cell yellow
-    dobCell.innerHTML += ' 🎂🎁';
-  }
-
-  // Append the cells to the table row
-  tableRow.appendChild(nameCell);
-  tableRow.appendChild(residenceCell);
-  tableRow.appendChild(paymentCell);
-  tableRow.appendChild(sexCell);
-  tableRow.appendChild(patientIdCell);
-  tableRow.appendChild(parentsCell);
-  tableRow.appendChild(dobCell);
-  tableRow.appendChild(ageCell);
-  tableRow.appendChild(actionsCell);
-
-  // Append the row to the table
-  table.appendChild(tableRow);
-});
-
-// Remove loading effect after the data has been rendered
-setTimeout(() => {
-  const loadingRows = document.querySelectorAll('.loading-row');
-  loadingRows.forEach(row => {
-    row.classList.remove('loading-row'); // Remove loading class
-  });
-}, 1500); // Adjust this duration based on your loading time
-
-
-// Append the table to the patients container
   patientsContainer.appendChild(table);
+}
 
-  // Show a detailed message if there are birthdays today
-  if (isBirthdayToday) {
+// ====================== CONFIG ======================
 
+let lastFetchedKey = null;
+const batchSize = 40;
+let loading = false;
 
- 
-    
-// Function to open the birthday message popup
-function openBirthdayMessagePopup(patients) {
-  const birthdayMessagePopup = document.getElementById('birthdayMessagePopup');
-  const patientsList = document.getElementById('patientsList');
-  const closePopupButton = document.getElementById('closeMessagePopup');
+const paginationDiv = document.getElementById('pagination');
 
-  // Check if the necessary elements exist before proceeding
-  if (!birthdayMessagePopup || !patientsList || !closePopupButton) {
-    console.error('One or more required elements are missing.');
+// ====================== FETCH IN BATCHES ======================
+async function fetchPatientsBatch() {
+  if (loading) return;
+  loading = true;
+
+  // Show skeleton immediately
+  renderPlaceholders(patientsPerPage);
+
+  let patientsQuery;
+  if (lastFetchedKey) {
+    patientsQuery = query(
+      patientsRef,
+      orderByKey(),
+      startAfter(lastFetchedKey),
+      limitToFirst(batchSize)
+    );
+  } else {
+    patientsQuery = query(
+      patientsRef,
+      orderByKey(),
+      limitToFirst(batchSize)
+    );
+  }
+
+  try {
+    const snapshot = await get(patientsQuery);
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const newPatients = Object.keys(data).map(key => ({
+        id: key,
+        ...data[key],
+      }));
+
+      lastFetchedKey = newPatients[newPatients.length - 1].id;
+      patientsData = [...patientsData, ...newPatients];
+      renderPatients(); // render first page
+    } else {
+      renderPatients();
+    }
+  } catch (error) {
+    console.error('Error fetching patients:', error);
+  } finally {
+    loading = false;
+  }
+}
+
+// ====================== RENDER FUNCTION ======================
+function renderPatients() {
+  const dataToDisplay = searchResults.length > 0 ? searchResults : patientsData;
+  if (dataToDisplay.length === 0) {
+    patientsContainer.innerHTML = '<p>No patients found.</p>';
+    paginationDiv.innerHTML = '';
     return;
   }
 
-  const patientsTable = document.getElementById('patientsTable');
+  const startIndex = (currentPage - 1) * patientsPerPage;
+  const endIndex = startIndex + patientsPerPage;
+  const patientsForPage = dataToDisplay.slice(startIndex, endIndex);
 
-  // Check if the patientsTable exists before clearing it
-  if (patientsTable) {
-    patientsTable.innerHTML = '';
-  } else {
-    console.error('patientsTable is missing.');
-  }
+  const table = document.createElement('table');
+  table.classList.add('patient-table');
 
-  // Filter and populate the popup with patients who have birthdays today
-  const todayPatients = patients.filter(patient => isToday(new Date(patient.dob)));
+  const headers = ['Name', 'Place of Residence', 'Payment Terms', 'Sex', 'Patient ID', 'Contact', 'Date of Birth', 'Age', 'Actions'];
+  const headerRow = document.createElement('tr');
+  headers.forEach(headerText => {
+    const th = document.createElement('th');
+    th.textContent = headerText;
+    headerRow.appendChild(th);
+  });
+  table.appendChild(headerRow);
 
-  todayPatients.forEach(patient => {
-    const row = patientsTable.insertRow();
-    const nameCell = row.insertCell(0);
-    const phoneCell = row.insertCell(1);
-  
-    nameCell.textContent = patient.name;
-    phoneCell.textContent = patient.parents;
+  // Collect patients with birthdays today
+  const todayPatients = [];
+
+  patientsForPage.forEach(patient => {
+    const row = document.createElement('tr');
+
+    const nameCell = createTableCell(patient.name);
+    const residenceCell = createTableCell(patient.residence);
+    const paymentCell = createTableCell(patient.payment);
+    const sexCell = createTableCell(patient.sex);
+    const idCell = createTableCell('PI - ' + (patient.patientId || patient.id));
+    const contactCell = createHiddenDigitsTableCell(patient.parents || '', 3);
+    const dobCell = createTableCell(patient.dob || '');
+    const ageCell = createTableCell(patient.dob ? new Date().getFullYear() - new Date(patient.dob).getFullYear() : '');
+
+    const actionCell = document.createElement('td');
+    const viewButton = document.createElement('button');
+    viewButton.textContent = 'View';
+    viewButton.classList.add('view-button');
+    viewButton.addEventListener('click', () => openPatientHistoryPopup(patient));
+    actionCell.appendChild(viewButton);
+
+    [nameCell, residenceCell, paymentCell, sexCell, idCell, contactCell, dobCell, ageCell, actionCell].forEach(c => row.appendChild(c));
+
+    // Birthday highlight
+    if (patient.dob && isToday(new Date(patient.dob))) {
+      dobCell.style.backgroundColor = 'yellow';
+      dobCell.innerHTML += ' 🎂🎁';
+      todayPatients.push(patient);
+    }
+
+    table.appendChild(row);
   });
 
-  // Display the popup
-  birthdayMessagePopup.classList.add('active');
+  patientsContainer.innerHTML = '';
+  patientsContainer.appendChild(table);
 
-  // Handle the "Send" button click to send the birthday message to all patients
-  const sendButton = document.getElementById('sendBirthdayMessage');
+  renderPagination(dataToDisplay.length);
 
-  // Check if the sendButton exists before attaching the click event
-  if (sendButton) {
-    sendButton.addEventListener('click', function() {
-      const birthdayMessageInput = document.getElementById('birthdayMessageInput').value;
-      const yourHospitalName = 'KEAH MEDICAL CENTER ';
-      const hospitalInfo = 'Katooke Wakiso District, Uganda';
-
-      // Define the function to send a message to a single patient
-      function sendMessageToPatient(patient) {
-        const message = `🎉 Happy Birthday, ${patient.name}! 🎂🎁\n\n`
-          + `From all of us at ${yourHospitalName}, we wish you a day filled with joy and happiness. 🌞\n\n`
-          + `As a birthday gift, we invite you to visit our hospital for a free comprehensive body checkup. 🩺🏥\n\n`
-          + `Your health is important to us, and we are here to ensure you have a healthy and vibrant year ahead. 💪\n\n`
-          + `Feel free to pass by and get the best care. 🚶‍♂️🚶‍♀️\n\n`
-          + `Address: ${hospitalInfo}\n\n`
-          + `Contact us at +256 782 477 517 for any inquiries. 📞`;
-
-        // Use a method or library to open a WhatsApp chat and pre-fill the message
-        window.open(`https://api.whatsapp.com/send?phone=${patient.parents}&text=${encodeURIComponent(message)}`);
-      }
-
-      // Send messages to patients with a delay between each message
-      todayPatients.forEach((patient, index) => {
-        setTimeout(() => {
-          sendMessageToPatient(patient);
-        }, index * 3000); // Adjust the delay (in milliseconds) as needed
-      });
-
-      // Close the popup
-      overlay.style.display = 'none'
-      birthdayMessagePopup.style.display = 'none';
-    });
-  } else {
-    console.error('sendBirthdayMessage button is missing.');
-  }
-
-
-
-
-  // Handle the "Close" button click to close the popup
-  closePopupButton.addEventListener('click', function() {
-    // Close the popup by removing the "active" class
-    birthdayMessagePopup.style.display = 'none';
-    overlay.style.display = 'none'
-  });
+  // Trigger birthday messaging popup if any
+  if (todayPatients.length > 0) openBirthdayMessagePopup(todayPatients);
 }
 
+// ====================== PAGINATION ======================
+function renderPagination(totalItems) {
+  const totalPages = Math.ceil(totalItems / patientsPerPage);
+  paginationDiv.innerHTML = '';
 
-
-
-
-  }
-
-
-  // Create pagination navigation
-  const totalPages = Math.ceil(dataToDisplay.length / patientsPerPage);
-
-  // Get a reference to the pagination div by its id
-  const paginationDiv = document.getElementById('pagination');
-  paginationDiv.innerHTML = ''; // Clear existing content in the div
-
-  // Create previous and next buttons
   const prevButton = document.createElement('button');
   prevButton.textContent = 'Previous';
+  prevButton.disabled = currentPage === 1;
   prevButton.addEventListener('click', () => {
     if (currentPage > 1) {
       currentPage--;
-      renderPatients(); // Re-render with the previous page
+      renderPatients();
     }
   });
 
   const nextButton = document.createElement('button');
   nextButton.textContent = 'Next';
+  nextButton.disabled = currentPage >= totalPages;
   nextButton.addEventListener('click', () => {
     if (currentPage < totalPages) {
       currentPage++;
-      renderPatients(); // Re-render with the next page
+      if ((currentPage * patientsPerPage) > patientsData.length) {
+        fetchPatientsBatch();
+      } else {
+        renderPatients();
+      }
     }
   });
 
-  // Display current page and total pages
   const pageInfo = document.createElement('span');
   pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
 
-  // Append the buttons and page info to the pagination div
-  paginationDiv.appendChild(prevButton);
-  paginationDiv.appendChild(pageInfo);
-  paginationDiv.appendChild(nextButton);
+  paginationDiv.append(prevButton, pageInfo, nextButton);
 }
 
-// Add event listener to search input for live search
+// ====================== SEARCH ======================
 searchInput.addEventListener('input', () => {
-  const searchTerm = searchInput.value.trim().toLowerCase(); // Get the search term
-
-  // Clear the search results
+  const searchTerm = searchInput.value.trim().toLowerCase();
   searchResults = [];
 
   if (searchTerm !== '') {
-    // Filter patients based on the search term
     searchResults = patientsData.filter(patient => {
       return (
-        patient.name.toLowerCase().includes(searchTerm) ||
-        patient.patientId.includes(searchTerm)
+        (patient.name && patient.name.toLowerCase().includes(searchTerm)) ||
+        (patient.patientId && patient.patientId.includes(searchTerm))
       );
     });
   }
 
-  // Reset the pagination to the first page
   currentPage = 1;
-
-  // Update the pagination and render the patients
   renderPatients();
 });
 
-// Call renderPatients with the initial parameters to show the first page
-renderPatients();
-
+// ====================== HELPERS ======================
 function createTableCell(text) {
   const cell = document.createElement('td');
-  cell.textContent = text;
+  cell.textContent = text || '';
   return cell;
 }
+
+function createHiddenDigitsTableCell(text, visibleDigitsCount) {
+  const cell = document.createElement('td');
+  if (!text) {
+    cell.textContent = '';
+    return cell;
+  }
+  if (text.length <= visibleDigitsCount) {
+    cell.textContent = text;
+  } else {
+    const hiddenDigits = '*'.repeat(text.length - visibleDigitsCount);
+    const visibleDigits = text.slice(-visibleDigitsCount);
+    cell.textContent = hiddenDigits + visibleDigits;
+  }
+  return cell;
+}
+
+
+// ====================== BIRTHDAY POPUP & MESSAGING ======================
+function openBirthdayMessagePopup(patients) {
+  const popup = document.getElementById('birthdayMessagePopup');
+  const table = document.getElementById('patientsTable');
+  const overlay = document.getElementById('overlay');
+  const closeBtn = document.getElementById('closeMessagePopup');
+
+  if (!popup || !table || !overlay || !closeBtn) return;
+
+  table.innerHTML = '';
+  patients.forEach(p => {
+    const row = table.insertRow();
+    const nameCell = row.insertCell(0);
+    const phoneCell = row.insertCell(1);
+    nameCell.textContent = p.name;
+    phoneCell.textContent = p.parents;
+  });
+
+  popup.classList.add('active');
+  overlay.style.display = 'block';
+
+  const sendBtn = document.getElementById('sendBirthdayMessage');
+  if (sendBtn) {
+    sendBtn.onclick = () => {
+      const messageInput = document.getElementById('birthdayMessageInput').value;
+      const hospitalName = 'Sanyu Hospital';
+      const hospitalInfo = 'Katooke Wakiso District, Uganda';
+
+      patients.forEach((p, i) => {
+        setTimeout(() => {
+          const message = `🎉 Happy Birthday, ${p.name}! 🎂🎁\n\n${messageInput}\nFrom ${hospitalName}\nAddress: ${hospitalInfo}`;
+          window.open(`https://api.whatsapp.com/send?phone=${p.parents}&text=${encodeURIComponent(message)}`);
+        }, i * 3000);
+      });
+
+      overlay.style.display = 'none';
+      popup.style.display = 'none';
+    };
+  }
+
+  closeBtn.onclick = () => {
+    overlay.style.display = 'none';
+    popup.style.display = 'none';
+  };
+}
+
+// ====================== INITIAL LOAD ======================
+document.addEventListener('DOMContentLoaded', () => {
+  fetchPatientsBatch();
+});
+
+
 
 
 
